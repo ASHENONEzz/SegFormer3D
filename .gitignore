@@ -4,6 +4,9 @@
 /data/brats2021_seg/BraTS2021_Training_Data/*
 /data/brats2021_seg/brats2021_raw_data/train
 
+/data/toothfairy_seg/ToothFairy_Training_Data/*
+/data/toothfairy_seg/toothfairy_raw_data/train
+
 
 /visualization/*
 

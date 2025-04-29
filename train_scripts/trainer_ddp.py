@@ -13,6 +13,7 @@ import kornia
 
 #################################################################################################
 class Segmentation_Trainer:
+    # 初始化组件
     def __init__(
         self,
         config: Dict,
@@ -81,6 +82,7 @@ class Segmentation_Trainer:
         self.epoch_val_ema_dice = 0.0
         self.best_val_ema_dice = 0.0
 
+    # 解析配置参数
     def _configure_trainer(self) -> None:
         """
         Configures useful config variables
@@ -111,6 +113,7 @@ class Segmentation_Trainer:
         )
         return ema_model
 
+    # 单训练步
     def _train_step(self) -> float:
         # Initialize the training loss for the current epoch
         epoch_avg_loss = 0.0
@@ -165,6 +168,7 @@ class Segmentation_Trainer:
 
         return epoch_avg_loss
 
+    # 单验证步
     def _val_step(self, use_ema: bool = False) -> float:
         """_summary_
 
@@ -219,6 +223,7 @@ class Segmentation_Trainer:
 
         return epoch_avg_loss
 
+    # Dice系数计算
     def _calc_dice_metric(self, data, labels, use_ema: bool) -> float:
         """_summary_
 
@@ -243,6 +248,7 @@ class Segmentation_Trainer:
             )
         return avg_dice_score
 
+    # 完整训练和验证循环
     def _run_train_val(self) -> None:
         """_summary_"""
         # Tell wandb to watch the model and optimizer values
@@ -280,6 +286,7 @@ class Segmentation_Trainer:
             # update schduler
             self.scheduler.step()
 
+    # 学习率调度
     def _update_scheduler(self) -> None:
         """_summary_"""
         if self.warmup_enabled:
@@ -363,6 +370,7 @@ class Segmentation_Trainer:
                 f"val mean_dice -- {self.epoch_val_dice:.5f}"
             )
 
+    # 模型保存
     def _save_checkpoint(self, filename: str) -> None:
         """_summary_
 

@@ -29,6 +29,16 @@ def build_dataset(dataset_type: str, dataset_args: Dict):
             fold_id=dataset_args["fold_id"],
         )
         return dataset
+    elif dataset_type == "toothfairy_seg":
+        from .toothfairy_seg import ToothFairyDataset
+
+        dataset = ToothFairyDataset(
+            root_dir=dataset_args["root"],
+            is_train=dataset_args["train"],
+            transform=build_augmentations(dataset_args["train"]),
+            fold_id=dataset_args["fold_id"],
+        )
+        return dataset
     else:
         raise ValueError(
             "only brats2021 and brats2017 segmentation is currently supported!"
