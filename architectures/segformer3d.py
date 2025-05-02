@@ -38,7 +38,7 @@ class SegFormer3D(nn.Module):
         num_heads: list = [1, 2, 5, 8],
         depths: list = [2, 2, 2, 2],
         decoder_head_embedding_dim: int = 256,
-        num_classes: int = 3,
+        num_classes: int = 1,
         decoder_dropout: float = 0.0,
     ):
         """
@@ -193,13 +193,10 @@ class SelfAttention(nn.Module):
             )
             self.sr_norm = nn.LayerNorm(embed_dim)
 
-    def forward(self, x, volume_shape):
+    def forward(self, x):
         # (batch_size, num_patches, hidden_size)
         B, N, C = x.shape
-        D, H, W = volume_shape
-        assert N == D * H * W, f"序列长度 {N} 与体积尺寸 {D}x{H}x{W} 不匹配"
 
-        # 生成查询 (Query)
         # (batch_size, num_head, sequence_length, embed_dim)
         q = (
             self.query(x)
@@ -207,52 +204,31 @@ class SelfAttention(nn.Module):
             .permute(0, 2, 1, 3)
         )
 
-        # if self.sr_ratio > 1:
-        #     n = cube_root(N)
-        #     # (batch_size, sequence_length, embed_dim) -> (batch_size, embed_dim, patch_D, patch_H, patch_W)
-        #     x_ = x.permute(0, 2, 1).reshape(B, C, n, n, n)
-        #     # (batch_size, embed_dim, patch_D, patch_H, patch_W) -> (batch_size, embed_dim, patch_D/sr_ratio, patch_H/sr_ratio, patch_W/sr_ratio)
-        #     x_ = self.sr(x_).reshape(B, C, -1).permute(0, 2, 1)
-        #     # (batch_size, embed_dim, patch_D/sr_ratio, patch_H/sr_ratio, patch_W/sr_ratio) -> (batch_size, sequence_length, embed_dim)
-        #     # normalizing the layer
-        #     x_ = self.sr_norm(x_)
-        #     # (batch_size, num_patches, hidden_size)
-        #     kv = (
-        #         self.key_value(x_)
-        #         .reshape(B, -1, 2, self.num_heads, self.attention_head_dim)
-        #         .permute(2, 0, 3, 1, 4)
-        #     )
-        #     # (2, batch_size, num_heads, num_sequence, attention_head_dim)
-        # else:
-        #     # (batch_size, num_patches, hidden_size)
-        #     kv = (
-        #         self.key_value(x)
-        #         .reshape(B, -1, 2, self.num_heads, self.attention_head_dim)
-        #         .permute(2, 0, 3, 1, 4)
-        #     )
-        #     # (2, batch_size, num_heads, num_sequence, attention_head_dim)
-
-        # k, v = kv[0], kv[1]
         if self.sr_ratio > 1:
-            # 使用实际体积尺寸重塑
-            x_ = x.permute(0, 2, 1).reshape(B, C, D, H, W)
-            x_ = self.sr(x_)  # 下采样后尺寸 (D//sr, H//sr, W//sr)
-            new_D, new_H, new_W = D // self.sr_ratio, H // self.sr_ratio, W // self.sr_ratio
-            x_ = x_.reshape(B, C, -1).permute(0, 2, 1)
+            n = cube_root(N)
+            # (batch_size, sequence_length, embed_dim) -> (batch_size, embed_dim, patch_D, patch_H, patch_W)
+            x_ = x.permute(0, 2, 1).reshape(B, C, n, n, n)
+            # (batch_size, embed_dim, patch_D, patch_H, patch_W) -> (batch_size, embed_dim, patch_D/sr_ratio, patch_H/sr_ratio, patch_W/sr_ratio)
+            x_ = self.sr(x_).reshape(B, C, -1).permute(0, 2, 1)
+            # (batch_size, embed_dim, patch_D/sr_ratio, patch_H/sr_ratio, patch_W/sr_ratio) -> (batch_size, sequence_length, embed_dim)
+            # normalizing the layer
             x_ = self.sr_norm(x_)
+            # (batch_size, num_patches, hidden_size)
             kv = (
                 self.key_value(x_)
                 .reshape(B, -1, 2, self.num_heads, self.attention_head_dim)
                 .permute(2, 0, 3, 1, 4)
             )
+            # (2, batch_size, num_heads, num_sequence, attention_head_dim)
         else:
-            # 处理未下采样的情况
+            # (batch_size, num_patches, hidden_size)
             kv = (
                 self.key_value(x)
                 .reshape(B, -1, 2, self.num_heads, self.attention_head_dim)
                 .permute(2, 0, 3, 1, 4)
             )
-        
+            # (2, batch_size, num_heads, num_sequence, attention_head_dim)
+
         k, v = kv[0], kv[1]
 
         attention_score = (q @ k.transpose(-2, -1)) / math.sqrt(self.num_heads)
@@ -297,8 +273,8 @@ class TransformerBlock(nn.Module):
         self.norm2 = nn.LayerNorm(embed_dim)
         self.mlp = _MLP(in_feature=embed_dim, mlp_ratio=mlp_ratio, dropout=0.0)
 
-    def forward(self, x, volume_shape):
-        x = x + self.attention(self.norm1(x), volume_shape)
+    def forward(self, x):
+        x = x + self.attention(self.norm1(x))
         x = x + self.mlp(self.norm2(x))
         return x
 
@@ -426,46 +402,49 @@ class MixVisionTransformer(nn.Module):
         # (batch_size, num_patches, hidden_state)
         # (num_patches,) -> (D, H, W)
         # (batch_size, num_patches, hidden_state) -> (batch_size, hidden_state, D, H, W)
-        # 验证输入尺寸是否可被 stride 整除
-        D, H, W = x.shape[2:]
-        assert D % self.embed_1.patch_embeddings.stride[0] == 0, f"输入深度 {D} 无法被 stride {self.embed_1.stride[0]} 整除"
-        assert H % self.embed_1.patch_embeddings.stride[1] == 0, f"输入高度 {H} 无法被 stride {self.embed_1.stride[1]} 整除"
-        assert W % self.embed_1.patch_embeddings.stride[2] == 0, f"输入宽度 {W} 无法被 stride {self.embed_1.stride[2]} 整除"
 
-        # Stage 1
-        x = self.embed_1(x)  # 输出形状: (B, C1, D1, H1, W1)
-        B, N1, C1 = x.shape
-        D1, H1, W1 = D // self.embed_1.patch_embeddings.stride[0], \
-                  H // self.embed_1.patch_embeddings.stride[1], \
-                  W // self.embed_1.patch_embeddings.stride[2]
-        x = x.reshape(B, D1, H1, W1, C1).permute(0, 4, 1, 2, 3).contiguous()
+        # stage 1
+        x = self.embed_1(x)
+        B, N, C = x.shape
+        n = cube_root(N)
+        for i, blk in enumerate(self.tf_block1):
+            x = blk(x)
+        x = self.norm1(x)
+        # (B, N, C) -> (B, D, H, W, C) -> (B, C, D, H, W)
+        x = x.reshape(B, n, n, n, -1).permute(0, 4, 1, 2, 3).contiguous()
         out.append(x)
 
-        # Stage 2
-        x = self.embed_2(x)  # 输出形状: (B, C2, D2, H2, W2)
-        B, N2, C2 = x.shape
-        D2, H2, W2 = D1 // self.embed_2.patch_embeddings.stride[0], \
-              H1 // self.embed_2.patch_embeddings.stride[1], \
-              W1 // self.embed_2.patch_embeddings.stride[2]
-        x = x.reshape(B, D2, H2, W2, C2).permute(0, 4, 1, 2, 3).contiguous()
+        # stage 2
+        x = self.embed_2(x)
+        B, N, C = x.shape
+        n = cube_root(N)
+        for i, blk in enumerate(self.tf_block2):
+            x = blk(x)
+        x = self.norm2(x)
+        # (B, N, C) -> (B, D, H, W, C) -> (B, C, D, H, W)
+        x = x.reshape(B, n, n, n, -1).permute(0, 4, 1, 2, 3).contiguous()
         out.append(x)
 
-        # Stage 3
-        x = self.embed_3(x)  # 输出形状: (B, C3, D3, H3, W3)
-        B, N3, C3 = x.shape
-        D3, H3, W3 = D2 // self.embed_3.patch_embeddings.stride[0], \
-              H2 // self.embed_3.patch_embeddings.stride[1], \
-              W2 // self.embed_3.patch_embeddings.stride[2]
-        x = x.reshape(B, D3, H3, W3, C3).permute(0, 4, 1, 2, 3).contiguous()
+        # stage 3
+        x = self.embed_3(x)
+        B, N, C = x.shape
+        n = cube_root(N)
+        for i, blk in enumerate(self.tf_block3):
+            x = blk(x)
+        x = self.norm3(x)
+        # (B, N, C) -> (B, D, H, W, C) -> (B, C, D, H, W)
+        x = x.reshape(B, n, n, n, -1).permute(0, 4, 1, 2, 3).contiguous()
         out.append(x)
 
-        # Stage 4
-        x = self.embed_4(x)  # 输出形状: (B, C4, D4, H4, W4)
-        B, N4, C4 = x.shape
-        D4, H4, W4 = D3 // self.embed_4.patch_embeddings.stride[0], \
-              H3 // self.embed_4.patch_embeddings.stride[1], \
-              W3 // self.embed_4.patch_embeddings.stride[2]
-        x = x.reshape(B, D4, H4, W4, C4).permute(0, 4, 1, 2, 3).contiguous()
+        # stage 4
+        x = self.embed_4(x)
+        B, N, C = x.shape
+        n = cube_root(N)
+        for i, blk in enumerate(self.tf_block4):
+            x = blk(x)
+        x = self.norm4(x)
+        # (B, N, C) -> (B, D, H, W, C) -> (B, C, D, H, W)
+        x = x.reshape(B, n, n, n, -1).permute(0, 4, 1, 2, 3).contiguous()
         out.append(x)
 
         return out
@@ -483,7 +462,7 @@ class _MLP(nn.Module):
 
     def forward(self, x):
         x = self.fc1(x)
-        x = self.dwconv(x, volume_shape)
+        x = self.dwconv(x)
         x = self.act_fn(x)
         x = self.dropout(x)
         x = self.fc2(x)
@@ -498,29 +477,21 @@ class DWConv(nn.Module):
         # added batchnorm (remove it ?)
         self.bn = nn.BatchNorm3d(dim)
 
-    def forward(self, x, volume_shape):
-        # B, N, C = x.shape
-        # # (batch, patch_cube, hidden_size) -> (batch, hidden_size, D, H, W)
-        # # assuming D = H = W, i.e. cube root of the patch is an integer number!
-        # n = cube_root(N)
-        # x = x.transpose(1, 2).view(B, C, n, n, n)
-        # x = self.dwconv(x)
-        # # added batchnorm (remove it ?)
-        # x = self.bn(x)
-        # x = x.flatten(2).transpose(1, 2)
-        # return x
-        D, H, W = volume_shape
+    def forward(self, x):
         B, N, C = x.shape
-        assert N == D * H * W, "输入序列长度与体积尺寸不匹配"
-        x = x.transpose(1, 2).view(B, C, D, H, W)
+        # (batch, patch_cube, hidden_size) -> (batch, hidden_size, D, H, W)
+        # assuming D = H = W, i.e. cube root of the patch is an integer number!
+        n = cube_root(N)
+        x = x.transpose(1, 2).view(B, C, n, n, n)
         x = self.dwconv(x)
+        # added batchnorm (remove it ?)
         x = self.bn(x)
         x = x.flatten(2).transpose(1, 2)
         return x
 
 ###################################################################################
-# def cube_root(n):
-#     return round(math.pow(n, (1 / 3)))
+def cube_root(n):
+    return round(math.pow(n, (1 / 3)))
     
 
 ###################################################################################
@@ -553,7 +524,7 @@ class SegFormerDecoderHead(nn.Module):
         self,
         input_feature_dims: list = [512, 320, 128, 64],
         decoder_head_embedding_dim: int = 256,
-        num_classes: int = 3,
+        num_classes: int = 1,
         dropout: float = 0.0,
     ):
         """

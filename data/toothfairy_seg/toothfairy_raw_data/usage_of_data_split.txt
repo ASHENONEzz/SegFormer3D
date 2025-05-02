@@ -1,0 +1,1 @@
+python .\split_dataset.py --data_root ./ --output_dir ./ --image_subdir train/imageTr

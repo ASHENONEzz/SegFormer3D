@@ -20,7 +20,7 @@ def analyze_ct_volume(pt_file, intensity_threshold=0.01, label_filter=True):
 
         # 提取数据
         volume = data['volume'].numpy().squeeze(0)  # [D=160, H=320, W=320]
-        label = data['label'].numpy()               # [D=160, H=320, W=320]
+        label = data['label'].numpy().squeeze(0)    # [D=160, H=320, W=320]
         
         # 生成坐标网格
         z, y, x = np.indices(volume.shape)
@@ -38,6 +38,7 @@ def analyze_ct_volume(pt_file, intensity_threshold=0.01, label_filter=True):
         # 统计信息
         print(f"===== 三维数据报告 =====")
         print(f"文件路径：{pt_file}")
+        print(f"数据形状：{volume.shape}")
         print(f"原始体素总量：{volume.size:,}")
         print(f"有效体素数量：{valid_coords.shape[0]:,} ({valid_coords.shape[0]/volume.size:.1%})")
         print(f"空间分辨率：{data['spacing']} mm")
@@ -61,7 +62,7 @@ def analyze_ct_volume(pt_file, intensity_threshold=0.01, label_filter=True):
 
 # 使用示例
 if __name__ == "__main__":
-    pt_path = r"D:\Ashen\Desktop\CBCT_Project\SegFormer3D\data\toothfairy_seg\ToothFairy_Training_Data\ToothFairy2F_001\ToothFairy2F_001.pt"
+    pt_path = r"D:\Ashen\Desktop\CBCT_Project\SegFormer3D\data\toothfairy_seg\ToothFairy_Training_Data\ToothFairy2F_001\ToothFairy2F_001_modalities.pt"
     analyze_ct_volume(
         pt_path,
         intensity_threshold=0.1,  # 根据数据特性调整

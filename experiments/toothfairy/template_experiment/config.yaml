@@ -20,17 +20,17 @@ model_parameters:
     mlp_ratios: [4, 4, 4, 4]
     num_heads: [1, 2, 5, 8]
     depths: [2, 2, 2, 2]
-    num_classes: 33
+    num_classes: 1
     decoder_dropout: 0.0
     decoder_head_embedding_dim: 256
 
 # loss function
 loss_fn:
   loss_type: "dice"
-  # loss_args: None
-  loss_args:
-    include_background: False
-    softmax: True # 必须启用
+  loss_args: None
+  # loss_args:
+  #   include_background: False
+  #   sigmoid: True # 必须启用
 
 # optimizer
 optimizer:
@@ -59,7 +59,7 @@ ema:
 
 sliding_window_inference:
   sw_batch_size: 2
-  roi: [160, 320, 320]
+  roi: [128, 128, 128]
 
 # gradient clipping (not implemented yet)
 clip_gradients:

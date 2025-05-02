@@ -1,0 +1,1 @@
+python .\rename_dataset.py --root_dir ./

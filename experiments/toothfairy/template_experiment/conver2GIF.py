@@ -1,124 +1,85 @@
-import numpy as np
 import nibabel as nib
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
-import imageio
-from matplotlib.colors import ListedColormap
+import numpy as np
+import gc
 
-def cbct_with_mask_to_gif(image_path, mask_path, output_path,
-                          slice_idx='middle',
-                          rotation_speed=2,
-                          duration=200,
-                          ct_center=400,
-                          ct_width=2000,
-                          mask_alpha=0.3,
-                          mask_cmap='Reds'):
-    """
-    生成带分割掩码的CBCT旋转GIF
+# 读取.nii.gz文件
+file_path = r'D:\Ashen\Desktop\CBCT_Project\SegFormer3D\data\toothfairy_seg\toothfairy_raw_data\train\labelsTr\ToothFairy2F_005.nii.gz'
+img = nib.load(file_path)
+
+# 获取图像数据
+img_data = img.get_fdata()
+
+# 可以查看图像的形状
+print("Image shape:", img_data.shape)
+
+# 可以查看图像的头信息
+print("Image header:", img.header)
+
+# 保存图像数据
+# np.save(r'D:\Ashen\Desktop\CBCT_Project\SegFormer3D\data\toothfairy_seg\ToothFairy2F_001.npy', img_data.astype(np.float32))
+
+# 显示图像的一个切片
+# plt.imshow(img_data[:, :, img_data.shape[2]//2], cmap='gray')
+# plt.title('Slice at the middle of the volume')
+# plt.savefig(r'D:\Ashen\Desktop\CBCT_Project\SegFormer3D\data\toothfairy_seg\image_ToothFairy2F_005.png')
+
+# # 显示图像的所有切片成 gif
+# # Function to create a GIF from 3D volume
+# def create_gif(data, output_path='output.gif', fps=10):
+#     """
+#     优化后的GIF生成函数
     
-    参数：
-    - image_path: CBCT图像路径(.nii.gz)
-    - mask_path: 分割掩码路径(.nii.gz)
-    - output_path: 输出GIF路径
-    - slice_idx: 切片索引（默认中间层）
-    - rotation_speed: 每帧旋转角度（建议1-5）
-    - duration: 动画总时长（毫秒）
-    - ct_center: CT窗位（牙齿常用400）
-    - ct_width: CT窗宽（牙齿常用2000）
-    - mask_alpha: 掩码透明度（0-1）
-    - mask_cmap: 掩码颜色映射（推荐'Reds','Greens'等）
-    """
-    # 加载数据
-    ct_img = nib.load(image_path)
-    mask_img = nib.load(mask_path)
+#     参数：
+#     - data: 三维numpy数组 [H, W, D]
+#     - output_path: 输出路径
+#     - fps: 帧率（建议5-15）
+#     """
+#     # 预处理：归一化数据
+#     data = data.astype(np.float32)
+#     data = (data - data.min()) / (data.max() - data.min()) * 255
     
-    ct_data = ct_img.get_fdata().astype(np.float32)
-    mask_data = mask_img.get_fdata().astype(np.uint8)
+#     # 创建图形对象
+#     fig, ax = plt.subplots(figsize=(8, 8))
+#     ax.axis('off')
     
-    # 方向校正（牙齿CBCT常用设置）
-    ct_data = np.rot90(ct_data, k=1, axes=(0,1))  # 顺时针旋转90度
-    ct_data = np.transpose(ct_data, (1,0,2))       # 交换XY轴
+#     # 初始化图像显示
+#     img = ax.imshow(data[:, :, 0], cmap='gray', animated=True)
     
-    mask_data = np.rot90(mask_data, k=1, axes=(0,1))
-    mask_data = np.transpose(mask_data, (1,0,2))
+#     # 正确的更新函数
+#     def update(frame):
+#         img.set_array(data[:, :, frame])
+#         return [img]
     
-    # 数据验证
-    assert ct_data.shape == mask_data.shape, "图像与掩码维度不匹配！"
+#     # 生成动画
+#     total_frames = data.shape[2]
+#     ani = FuncAnimation(fig, 
+#                        update, 
+#                        frames=total_frames,
+#                        interval=1000//fps,  # 正确计算间隔
+#                        blit=True)
     
-    # 选择切片
-    if slice_idx == 'middle':
-        slice_idx = ct_data.shape[2] // 2
-    ct_slice = ct_data[:, :, slice_idx].T
-    mask_slice = mask_data[:, :, slice_idx].T
-
-    # 窗宽窗位调整
-    min_val = ct_center - ct_width/2
-    max_val = ct_center + ct_width/2
-    ct_slice = np.clip(ct_slice, min_val, max_val)
-    ct_slice = (ct_slice - min_val) / (max_val - min_val)  # 归一化到0-1
-
-    # 创建带透明度支持的掩码颜色映射
-    mask_cmap = plt.get_cmap(mask_cmap)
-    mask_cmap_colors = mask_cmap(np.arange(mask_cmap.N))
-    mask_cmap_colors[:, -1] = mask_alpha  # 设置透明度
-    transparent_cmap = ListedColormap(mask_cmap_colors)
-
-    # 初始化画布
-    fig = plt.figure(figsize=(8, 8), dpi=100)
-    ax = fig.add_subplot(111, projection='3d')
-    ax.set_axis_off()
+#     # 保存时显示进度
+#     print("正在生成GIF...")
+#     ani.save(output_path, 
+#              writer='pillow', 
+#              fps=fps,
+#              progress_callback=lambda i, n: print(f'\r进度: {i+1}/{n}', end=''))
     
-    # 绘制CT图像（冠状面视图）
-    ct_plot = ax.imshow(ct_slice, 
-                       cmap='gray', 
-                       extent=[0, ct_slice.shape[1], 0, ct_slice.shape[0], 0, 0],
-                       origin='lower')
-    
-    # 叠加分割掩码（提升2个单位避免Z-fighting）
-    mask_plot = ax.imshow(np.ma.masked_where(mask_slice==0, mask_slice), 
-                         cmap=transparent_cmap, 
-                         extent=[0, mask_slice.shape[1], 0, mask_slice.shape[0], 2, 2],
-                         origin='lower')
+#     # 主动释放内存
+#     plt.close(fig)
+#     del ani
+#     gc.collect()
 
-    # 设置3D视图参数
-    ax.view_init(elev=15, azim=0)  # 初始视角
-    ax.dist = 8  # 观察距离
+# # 使用示例
+# file_path = r'D:\Ashen\Desktop\CBCT_Project\SegFormer3D\data\toothfairy_seg\toothfairy_raw_data\train\imageTr\ToothFairy2F_001.nii.gz'
+# img_data = nib.load(file_path).get_fdata()
 
-    # 动画更新函数
-    def update(frame):
-        ax.view_init(elev=15, azim=frame*rotation_speed)
-        return [ct_plot, mask_plot]
-
-    # 生成动画
-    total_frames = int(360 / rotation_speed)
-    ani = FuncAnimation(fig, update, frames=total_frames, blit=True)
-
-    # 保存GIF
-    ani.save(output_path, 
-             writer='pillow', 
-             fps=1000/duration,
-             progress_callback=lambda i, n: print(f'\r生成进度: {i+1}/{n}', end=''))
-
-    plt.close(fig)
-    
-    # 优化GIF循环
-    with imageio.get_reader(output_path) as reader:
-        frames = [np.array(frame) for frame in reader]
-    imageio.mimsave(output_path, frames, duration=duration/1000, loop=0)
-
-    print(f"\n可视化结果已保存至：{output_path}")
-
-# 使用示例
-if __name__ == "__main__":
-    # 牙齿CBCT典型参数设置
-    cbct_with_mask_to_gif(
-        image_path=r"D:\Ashen\Desktop\CBCT_Project\SegFormer3D\data\toothfairy_seg\toothfairy_raw_data\train\imageTr\ToothFairy2F_001.nii.gz",
-        mask_path=r"D:\Ashen\Desktop\CBCT_Project\SegFormer3D\data\toothfairy_seg\toothfairy_raw_data\train\labelsTr\ToothFairy2F_001.nii.gz",
-        output_path=r"D:\Ashen\Desktop\CBCT_Project\SegFormer3D\data\toothfairy_seg\teeth_animation.gif",
-        ct_center=400,      # 适合牙齿的窗位
-        ct_width=2000,      # 骨窗宽
-        mask_alpha=0.3,      # 适中的透明度
-        mask_cmap='summer',  # 黄绿色调
-        rotation_speed=2,    # 中等旋转速度
-        duration=3000        # 3秒完成一圈
-    )
+# # 方向校正（根据实际数据可能需要调整）
+# # img_data = np.rot90(img_data, k=1, axes=(0, 1))
+# # img_data = np.transpose(img_data, (1, 0, 2))
+# img_data = img_data.transpose(2, 0, 1)  # 转置为 [D, H, W]
+# create_gif(img_data, 
+#           output_path=r'D:\Ashen\Desktop\CBCT_Project\SegFormer3D\data\toothfairy_seg\ToothFairy2F_001.gif',
+#           fps=12)  # 推荐12帧/秒
