@@ -105,9 +105,9 @@ dataset_parameters:
     # and put it under ../../../data/brats2017_seg and change the fold_id accrodingly
 
   train_dataloader_args:
-    batch_size: 1 
+    batch_size: 2 
     shuffle: True
-    num_workers: 1
+    num_workers: 2
     drop_last: True
 
   val_dataloader_args:
